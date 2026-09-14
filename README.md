@@ -2,6 +2,9 @@
 
 A simple Bash script to analyse basic performance stats on any Linux server — no non-standard dependencies required.
 
+Project URL:
+https://roadmap.sh/projects/server-stats
+
 ## What it reports
 
 **Core stats:**
