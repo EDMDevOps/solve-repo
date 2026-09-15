@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+#
+# log-archive — Archive a directory of logs into a timestamped .tar.gz
+#
+# Usage:
+#   log-archive <log-directory>
+#
+# Example:
+#   log-archive /var/log
+#
+# Behaviour:
+#   - Compresses the given directory into a tar.gz archive.
+#   - Stores the archive in ~/log_archives (created if it doesn't exist).
+#   - Archive filename format: logs_archive_YYYYMMDD_HHMMSS.tar.gz
+#   - Appends a record (date/time + archive path) to ~/log_archives/archive.log
+
+set -euo pipefail
+
+# ---------- Config ----------
+ARCHIVE_DIR="${LOG_ARCHIVE_DIR:-$HOME/log_archives}"
+ARCHIVE_LOG="$ARCHIVE_DIR/archive.log"
+
+# ---------- Usage / argument check ----------
+usage() {
+    echo "Usage: $(basename "$0") <log-directory>"
+    echo
+    echo "Compresses <log-directory> into a timestamped .tar.gz archive"
+    echo "and stores it in: $ARCHIVE_DIR"
+}
+
+if [ "$#" -ne 1 ]; then
+    echo "Error: exactly one argument (log directory) is required." >&2
+    usage
+    exit 1
+fi
+
+LOG_DIR="$1"
+
+if [ "$LOG_DIR" = "-h" ] || [ "$LOG_DIR" = "--help" ]; then
+    usage
+    exit 0
+fi
+
+if [ ! -d "$LOG_DIR" ]; then
+    echo "Error: '$LOG_DIR' is not a valid directory." >&2
+    exit 1
+fi
+
+if [ ! -r "$LOG_DIR" ]; then
+    echo "Error: no read permission for '$LOG_DIR'. Try running with sudo." >&2
+    exit 1
+fi
+
+# ---------- Prepare archive destination ----------
+mkdir -p "$ARCHIVE_DIR"
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+ARCHIVE_NAME="logs_archive_${TIMESTAMP}.tar.gz"
+ARCHIVE_PATH="$ARCHIVE_DIR/$ARCHIVE_NAME"
+
+# Resolve to an absolute path so the log entry is unambiguous
+LOG_DIR_ABS=$(cd "$LOG_DIR" && pwd)
+
+# ---------- Compress ----------
+# Archive the contents with paths relative to the parent of LOG_DIR,
+# so extracting recreates a folder named after LOG_DIR (not absolute paths).
+PARENT_DIR=$(dirname "$LOG_DIR_ABS")
+BASE_NAME=$(basename "$LOG_DIR_ABS")
+
+if ! tar -czf "$ARCHIVE_PATH" -C "$PARENT_DIR" "$BASE_NAME" 2>/tmp/log-archive-err.$$; then
+    echo "Error: failed to create archive." >&2
+    cat /tmp/log-archive-err.$$ >&2
+    rm -f /tmp/log-archive-err.$$
+    rm -f "$ARCHIVE_PATH"
+    exit 1
+fi
+rm -f /tmp/log-archive-err.$$
+
+ARCHIVE_SIZE=$(du -h "$ARCHIVE_PATH" | cut -f1)
+
+# ---------- Record the archive event ----------
+RECORD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+echo "[$RECORD_TIME] Archived '$LOG_DIR_ABS' -> '$ARCHIVE_PATH' (size: $ARCHIVE_SIZE)" >> "$ARCHIVE_LOG"
+
+# ---------- Report to user ----------
+echo "Logs archived successfully."
+echo "  Source:  $LOG_DIR_ABS"
+echo "  Archive: $ARCHIVE_PATH"
+echo "  Size:    $ARCHIVE_SIZE"
+echo "  Logged to: $ARCHIVE_LOG"
